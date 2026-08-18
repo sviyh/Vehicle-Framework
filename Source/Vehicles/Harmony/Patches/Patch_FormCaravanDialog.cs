@@ -147,8 +147,8 @@ internal class Patch_FormCaravanDialog : IPatchCategory
     HarmonyPatcher.Patch(
       original: AccessTools.Method(typeof(Dialog_FormCaravan),
         nameof(Dialog_FormCaravan.Notify_ChoseRoute)),
-      postfix: new HarmonyMethod(typeof(Patch_FormCaravanDialog),
-        nameof(AdjustVehicleStartingTile)));
+      transpiler: new HarmonyMethod(typeof(Patch_FormCaravanDialog),
+        nameof(ChooseVehicleStartingTileTranspiler)));
     HarmonyPatcher.Patch(original: AccessTools.Method(typeof(Dialog_FormCaravan), "TrySend"),
       prefix: new HarmonyMethod(typeof(Patch_FormCaravanDialog),
         nameof(TryAndSendWithVehicles)));
@@ -669,22 +669,36 @@ internal class Patch_FormCaravanDialog : IPatchCategory
     }
   }
 
-  private static void AdjustVehicleStartingTile(Dialog_FormCaravan __instance,
-    PlanetTile destinationTile, Map ___map, bool __runOriginal)
+  private static IEnumerable<CodeInstruction> ChooseVehicleStartingTileTranspiler(
+    IEnumerable<CodeInstruction> instructions)
   {
-    if (!__runOriginal || !VehiclesSelected(__instance.transferables))
-      return;
+    MethodInfo bestExitTileMethod = AccessTools.Method(typeof(CaravanExitMapUtility),
+      nameof(CaravanExitMapUtility.BestExitTileToGoTo),
+      parameters: [typeof(PlanetTile), typeof(Map)]);
+    MethodInfo replacement = AccessTools.Method(typeof(Patch_FormCaravanDialog),
+      nameof(BestExitTileToGoTo));
+
+    foreach (CodeInstruction instruction in instructions)
+    {
+      if (instruction.Calls(bestExitTileMethod))
+      {
+        yield return new CodeInstruction(OpCodes.Ldarg_0);
+        instruction.operand = replacement;
+      }
+      yield return instruction;
+    }
+  }
+
+  private static PlanetTile BestExitTileToGoTo(PlanetTile destinationTile, Map map,
+    Dialog_FormCaravan formCaravan)
+  {
+    if (!VehiclesSelected(formCaravan.transferables))
+      return CaravanExitMapUtility.BestExitTileToGoTo(destinationTile, map);
 
     List<VehicleDef> vehicleDefs = TransferableUtility
-     .GetPawnsFromTransferables(__instance.transferables)
+     .GetPawnsFromTransferables(formCaravan.transferables)
      .UniqueVehicleDefsInList();
-    FormationInfo formation = CaravanFormation.formation;
-    if (formation == null || formation.Dialog != __instance)
-    {
-      formation = new FormationInfo(__instance, ___map);
-    }
-    formation.StartingTile =
-      CaravanHelper.BestExitTileToGoTo(vehicleDefs, destinationTile, ___map);
+    return CaravanHelper.BestExitTileToGoTo(vehicleDefs, destinationTile, map);
   }
 
   /// <summary>
